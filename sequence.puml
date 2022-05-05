@@ -1,0 +1,75 @@
+
+@startuml "General"
+
+!unquoted procedure gSystem($alias, $label, $system, $layer="", $method="")
+    !$content = "<size:14>"+$system+"</size>"
+    !if ($layer != "")
+        !$content = $content + "\n<size:12>"+$layer+"</size>"
+    !endif
+    !if ($method != "")
+        !$content = $content + "\n<size:10>"+$method+"</size>"
+    !endif
+    participant "=$label\n----\n$content" as $alias
+!endprocedure
+
+skinparam maxMessageSize 220
+autonumber
+
+Actor Requester #Orange
+box "Internal Service"
+gSystem(InfraCmdSend, "Send Command", "Go LSQ", "Infrastructure", "Command") #DarkSeaGreen
+gSystem(InfraCmdRead, "Read Command", "Go LSQ", "Infrastructure", "Command") #DarkSeaGreen
+gSystem(InfraCmdDel, "Delete Command", "Go LSQ", "Infrastructure", "Command") #DarkSeaGreen
+gSystem(AppUseSend, "Send Use Case", "Go LSQ", "Application", "Use Case") #MediumSeaGreen
+gSystem(AppUseRead, "Read Use Case", "Go LSQ", "Application", "Use Case") #MediumSeaGreen
+gSystem(AppUseDel, "Delete Use Case", "Go LSQ", "Application", "Use Case") #MediumSeaGreen
+gSystem(InfraRepoMessage, "Message Storage", "Go LSQ", "Infrastructure", "Repository") #DarkSeaGreen
+end box
+gSystem(ExtDatabase, "Database", "External", "NoSQL") #Orange
+
+== Send Message ==
+
+rnote over Requester #Orange: Configure the config.yml
+Requester-> InfraCmdSend: Call method to send message
+rnote over InfraCmdSend #DarkSeaGreen: Configure ports
+InfraCmdSend -> AppUseSend: Request insert data on queue
+rnote over AppUseSend #MediumSeaGreen: Validate the data
+AppUseSend -> InfraRepoMessage: Request persistence of data
+rnote over InfraRepoMessage #DarkSeaGreen: Generate message ID and create DTO
+InfraRepoMessage -> ExtDatabase: Persist data on NoSQL
+ExtDatabase --> InfraRepoMessage: Status
+InfraRepoMessage --> AppUseSend: Status with complete entity
+AppUseSend --> InfraCmdSend: Status with complete entity
+InfraCmdSend --> Requester: Status with complete entity
+
+== Read Message ==
+rnote over Requester #Orange: Configure the config.yml
+Requester-> InfraCmdRead: Call method to Read next x messages\n(check if new exists)
+rnote over InfraCmdRead #DarkSeaGreen: Configure ports
+InfraCmdRead -> AppUseRead: Request next X entities in the queue
+rnote over AppUseRead #MediumSeaGreen: Validate the arguments data
+AppUseRead -> InfraRepoMessage: Request messages persistence of data
+rnote over InfraRepoMessage #DarkSeaGreen: Configure needs arguments\n(ex: if date is after delay)
+InfraRepoMessage -> ExtDatabase: Request data of NoSQL
+ExtDatabase --> InfraRepoMessage: DTO
+rnote over InfraRepoMessage #DarkSeaGreen: Create entities of DTO list
+rnote over InfraRepoMessage #DarkSeaGreen: Change reserved attribute on entities
+InfraRepoMessage -> ExtDatabase: Save new reserved attribute on database
+ExtDatabase --> InfraRepoMessage: Status
+InfraRepoMessage --> AppUseRead: Status with entity list
+AppUseRead --> InfraCmdRead: Status with entity list
+InfraCmdRead --> Requester: Status with entity list
+
+== Remove Message ==
+rnote over Requester #Orange: Configure the config.yml
+Requester-> InfraCmdDel: Call method to Delete messages by Keys
+rnote over InfraCmdDel #DarkSeaGreen: Configure ports
+InfraCmdDel -> AppUseDel: Request delete X entities by key in the queue
+AppUseDel -> InfraRepoMessage: Request remove message
+InfraRepoMessage -> ExtDatabase: Remove data from database
+ExtDatabase --> InfraRepoMessage: Status
+InfraRepoMessage --> AppUseDel: Status
+AppUseDel --> InfraCmdDel: Status
+InfraCmdDel --> Requester: Status
+
+@enduml
