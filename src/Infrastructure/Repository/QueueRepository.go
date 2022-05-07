@@ -180,6 +180,20 @@ func (repository *QueueRepository) DeleteMessage(messages []*DomainEntity.Messag
 	return nil
 }
 
+func (repository *QueueRepository) DeleteMessageByReceiptHandle(receiptHandles []string) error {
+	db := repository.connect()
+	defer db.Close()
+	for _, receiptHandle := range receiptHandles {
+		err := db.Query(repository.QueueName).DeleteById(receiptHandle)
+		if err != nil {
+			DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.DeleteMessageByReceiptHandle.01", err)
+		}
+	}
+	db.Close()
+
+	return nil
+}
+
 func (repository *QueueRepository) CountTotalMessages() int {
 	db := repository.connect()
 	defer db.Close()

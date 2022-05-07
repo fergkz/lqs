@@ -6,4 +6,5 @@ type QueueRepository interface {
 	SendMessage(messages []*DomainEntity.MessageEntity) error
 	ReadMessage(maxNumberOfMessages int, waitTimeSeconds int) (messages []*DomainEntity.MessageEntity, err error)
 	DeleteMessage(messages []*DomainEntity.MessageEntity) error
+	DeleteMessageByReceiptHandle(receiptHandles []string) error
 }

@@ -78,6 +78,12 @@ func (app *Queue) ReadMessages(quantity int) (messages []*DomainEntity.MessageEn
 	return messages
 }
 
+func (app *Queue) RemoveMessagesByReceiptHandle(receiptHandles []string) bool {
+	return (&ApplicationUseCase.RemoveMessageByReceiptHandleUseCase{
+		Repository: &app.repository,
+	}).Run(receiptHandles)
+}
+
 func (app *Queue) RemoveMessages(messages []*DomainEntity.MessageEntity) []*DomainEntity.MessageEntity {
 	(&ApplicationUseCase.RemoveMessageUseCase{
 		Repository: &app.repository,
