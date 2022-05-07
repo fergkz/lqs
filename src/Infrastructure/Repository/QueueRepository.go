@@ -179,3 +179,31 @@ func (repository *QueueRepository) DeleteMessage(messages []*DomainEntity.Messag
 
 	return nil
 }
+
+func (repository *QueueRepository) CountTotalMessages() int {
+	db := repository.connect()
+	defer db.Close()
+
+	count, _ := db.Query(repository.QueueName).Count()
+
+	db.Close()
+
+	return count
+}
+
+func (repository *QueueRepository) ExportAllToFile(filepath string) {
+	db, _ := repository.badgerOpenLoop()
+	defer db.Close()
+	docs, _ := db.Query(repository.QueueName).FindAll()
+	db.Close()
+
+	var messages []queueMessageDTO
+	for _, doc := range docs {
+		messageDTO := &queueMessageDTO{}
+		doc.Unmarshal(messageDTO)
+
+		messages = append(messages, *messageDTO)
+	}
+
+	DomainTool.Pretty.Save(messages, filepath)
+}

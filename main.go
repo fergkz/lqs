@@ -84,3 +84,11 @@ func (app *Queue) RemoveMessages(messages []*DomainEntity.MessageEntity) []*Doma
 	}).Run(messages)
 	return messages
 }
+
+func (app *Queue) CountTotalMessages() int {
+	return app.repository.CountTotalMessages()
+}
+
+func (app *Queue) ExportAllToFile(filepath string) {
+	app.repository.ExportAllToFile(filepath)
+}
