@@ -1,6 +1,8 @@
 package lqs
 
 import (
+	"time"
+
 	ApplicationUseCase "github.com/fergkz/lqs/src/Application/UseCase"
 	DomainEntity "github.com/fergkz/lqs/src/Domain/Entity"
 	InfrastructureRepository "github.com/fergkz/lqs/src/Infrastructure/Repository"
@@ -75,6 +77,13 @@ func (app *Queue) ReadMessages(quantity int) (messages []*DomainEntity.MessageEn
 	messages = (&ApplicationUseCase.ReadMessageUseCase{
 		Repository: &app.repository,
 	}).Run(quantity, 0)
+	return messages
+}
+
+func (app *Queue) ReadMessagesReservedBefore(quantity int, maxDate time.Time) (messages []*DomainEntity.MessageEntity) {
+	messages = (&ApplicationUseCase.ReadMessageReservedBeforeUseCase{
+		Repository: &app.repository,
+	}).Run(quantity, maxDate)
 	return messages
 }
 

@@ -166,6 +166,53 @@ func (repository *QueueRepository) ReadMessage(maxNumberOfMessages int, waitTime
 	return messages, nil
 }
 
+func (repository *QueueRepository) ReadMessageReservedBefore(maxNumberOfMessages int, maxDate time.Time) (messages []*DomainEntity.MessageEntity, err error) {
+	db := repository.connect()
+	defer db.Close()
+
+	query := db.Query(repository.QueueName).Where(
+		clover.Field("ReservedAt").Exists().And(
+			clover.Field("ReservedAt").Neq(time.Time{}).And(
+				clover.Field("ReservedAt").LtEq(maxDate),
+			),
+		),
+	).Where(
+		clover.Field("ReadAfter").LtEq(time.Now()),
+	)
+
+	if repository.Fifo {
+		query = query.Sort(clover.SortOption{
+			Field:     "CreatedAt",
+			Direction: 1,
+		})
+	}
+
+	docs, err := query.Limit(maxNumberOfMessages).FindAll()
+
+	if err != nil {
+		DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.ReadMessage.01", err)
+	}
+
+	currentTime := time.Now()
+
+	updates := make(map[string]interface{})
+	updates["ReservedAt"] = currentTime
+
+	for _, doc := range docs {
+		messageDTO := &queueMessageDTO{}
+		doc.Unmarshal(messageDTO)
+		messages = append(messages, &messageDTO.Message)
+		err := db.Query(repository.QueueName).UpdateById(messageDTO.Message.ReceiptHandle, updates)
+		if err != nil {
+			DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.ReadMessage.02", err)
+		}
+	}
+
+	db.Close()
+
+	return messages, nil
+}
+
 func (repository *QueueRepository) DeleteMessage(messages []*DomainEntity.MessageEntity) error {
 	db := repository.connect()
 	defer db.Close()
