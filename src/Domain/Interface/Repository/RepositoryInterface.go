@@ -12,4 +12,8 @@ type QueueRepository interface {
 	ReadMessageReservedBefore(maxNumberOfMessages int, maxDate time.Time) (messages []*DomainEntity.MessageEntity, err error)
 	DeleteMessage(messages []*DomainEntity.MessageEntity) error
 	DeleteMessageByReceiptHandle(receiptHandles []string) error
+	ExportAllToFile(filapath string)
+	CountTotalMessages() int
+	DropQueue()
+	GetQueueName() string
 }

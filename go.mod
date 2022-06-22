@@ -3,9 +3,11 @@ module github.com/fergkz/lqs
 go 1.16
 
 require (
+	github.com/go-sql-driver/mysql v1.6.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.7 // indirect
+	github.com/google/uuid v1.1.2
 	github.com/ostafen/clover v1.1.0
 	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/net v0.0.0-20220412020605-290c469a71a5 // indirect

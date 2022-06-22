@@ -11,10 +11,10 @@ import (
 	"github.com/ostafen/clover"
 )
 
-type QueueRepository struct {
-	StoragePath string
-	QueueName   string
-	Fifo        bool
+type QueueRepositoryFiles struct {
+	storagePath string
+	queueName   string
+	fifo        bool
 }
 
 type queueMessageDTO struct {
@@ -24,19 +24,31 @@ type queueMessageDTO struct {
 	Message    DomainEntity.MessageEntity
 }
 
-func (repository *QueueRepository) badgerOpen() (*clover.DB, bool, error) {
+func NewQueueRepositoryFiles(storagePath string, queueName string, fifo bool) QueueRepositoryFiles {
+	repository := new(QueueRepositoryFiles)
+	repository.storagePath = storagePath
+	repository.queueName = queueName
+	repository.fifo = fifo
+	return *repository
+}
+
+func (repository QueueRepositoryFiles) GetQueueName() string {
+	return repository.queueName
+}
+
+func (repository QueueRepositoryFiles) badgerOpen() (*clover.DB, bool, error) {
 	defer func() {
 		if err := recover(); err != nil {
 			return
 		}
 	}()
 
-	if err := os.Mkdir(repository.StoragePath, 0777); err != nil && !os.IsExist(err) {
+	if err := os.MkdirAll(repository.storagePath, 0777); err != nil && !os.IsExist(err) {
 		return nil, false, err
 	}
 
 	connect := false
-	db, err := clover.Open(repository.StoragePath + "/" + repository.QueueName)
+	db, err := clover.Open(repository.storagePath + "/" + repository.queueName)
 
 	if err == nil {
 		connect = true
@@ -45,7 +57,7 @@ func (repository *QueueRepository) badgerOpen() (*clover.DB, bool, error) {
 	return db, connect, err
 }
 
-func (repository *QueueRepository) badgerOpenLoop() (*clover.DB, error) {
+func (repository QueueRepositoryFiles) badgerOpenLoop() (*clover.DB, error) {
 	var db *clover.DB
 	var err error
 	connected := false
@@ -61,18 +73,18 @@ func (repository *QueueRepository) badgerOpenLoop() (*clover.DB, error) {
 	return db, err
 }
 
-func (repository *QueueRepository) connect() *clover.DB {
+func (repository QueueRepositoryFiles) connect() *clover.DB {
 	db, _ := repository.badgerOpenLoop()
 
-	exists, _ := db.HasCollection(repository.QueueName)
+	exists, _ := db.HasCollection(repository.queueName)
 	if !exists {
-		db.CreateCollection(repository.QueueName)
+		db.CreateCollection(repository.queueName)
 	}
 
 	return db
 }
 
-func (repository *QueueRepository) collectionToDocuments(collection *[]queueMessageDTO) []*clover.Document {
+func (repository QueueRepositoryFiles) collectionToDocuments(collection *[]queueMessageDTO) []*clover.Document {
 	documents := make([]*clover.Document, 0, len(*collection))
 	for _, item := range *collection {
 		var inInterface map[string]interface{}
@@ -83,13 +95,15 @@ func (repository *QueueRepository) collectionToDocuments(collection *[]queueMess
 	return documents
 }
 
-func (repository *QueueRepository) SendMessage(messages []*DomainEntity.MessageEntity) error {
+func (repository QueueRepositoryFiles) DropQueue() {}
+
+func (repository QueueRepositoryFiles) SendMessage(messages []*DomainEntity.MessageEntity) error {
 	var messagesDTO []queueMessageDTO
 
 	for index := range messages {
 		message := (messages)[index]
 
-		message.Queue = repository.QueueName
+		message.Queue = repository.queueName
 
 		if message.CreatedAt.IsZero() {
 			message.CreatedAt = time.Now()
@@ -111,7 +125,7 @@ func (repository *QueueRepository) SendMessage(messages []*DomainEntity.MessageE
 	if len(docs) > 0 {
 		db := repository.connect()
 		defer db.Close()
-		err := db.Insert(repository.QueueName, docs...)
+		err := db.Insert(repository.queueName, docs...)
 		db.Close()
 		if err != nil {
 			log.Fatalln("ERROR:", err)
@@ -121,11 +135,11 @@ func (repository *QueueRepository) SendMessage(messages []*DomainEntity.MessageE
 	return nil
 }
 
-func (repository *QueueRepository) ReadMessage(maxNumberOfMessages int, waitTimeSeconds int) (messages []*DomainEntity.MessageEntity, err error) {
+func (repository QueueRepositoryFiles) ReadMessage(maxNumberOfMessages int, waitTimeSeconds int) (messages []*DomainEntity.MessageEntity, err error) {
 	db := repository.connect()
 	defer db.Close()
 
-	query := db.Query(repository.QueueName).Where(
+	query := db.Query(repository.queueName).Where(
 		clover.Field("ReservedAt").IsNilOrNotExists().Or(
 			clover.Field("ReservedAt").Eq(time.Time{}),
 		),
@@ -133,7 +147,7 @@ func (repository *QueueRepository) ReadMessage(maxNumberOfMessages int, waitTime
 		clover.Field("ReadAfter").LtEq(time.Now()),
 	)
 
-	if repository.Fifo {
+	if repository.fifo {
 		query = query.Sort(clover.SortOption{
 			Field:     "CreatedAt",
 			Direction: 1,
@@ -143,7 +157,7 @@ func (repository *QueueRepository) ReadMessage(maxNumberOfMessages int, waitTime
 	docs, err := query.Limit(maxNumberOfMessages).FindAll()
 
 	if err != nil {
-		DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.ReadMessage.01", err)
+		DomainTool.Pretty.Fatalln("ERROR ON QueueRepositoryFiles.ReadMessage.01", err)
 	}
 
 	currentTime := time.Now()
@@ -155,9 +169,9 @@ func (repository *QueueRepository) ReadMessage(maxNumberOfMessages int, waitTime
 		messageDTO := &queueMessageDTO{}
 		doc.Unmarshal(messageDTO)
 		messages = append(messages, &messageDTO.Message)
-		err := db.Query(repository.QueueName).UpdateById(messageDTO.Message.ReceiptHandle, updates)
+		err := db.Query(repository.queueName).UpdateById(messageDTO.Message.ReceiptHandle, updates)
 		if err != nil {
-			DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.ReadMessage.02", err)
+			DomainTool.Pretty.Fatalln("ERROR ON QueueRepositoryFiles.ReadMessage.02", err)
 		}
 	}
 
@@ -166,11 +180,11 @@ func (repository *QueueRepository) ReadMessage(maxNumberOfMessages int, waitTime
 	return messages, nil
 }
 
-func (repository *QueueRepository) ReadMessageReservedBefore(maxNumberOfMessages int, maxDate time.Time) (messages []*DomainEntity.MessageEntity, err error) {
+func (repository QueueRepositoryFiles) ReadMessageReservedBefore(maxNumberOfMessages int, maxDate time.Time) (messages []*DomainEntity.MessageEntity, err error) {
 	db := repository.connect()
 	defer db.Close()
 
-	query := db.Query(repository.QueueName).Where(
+	query := db.Query(repository.queueName).Where(
 		clover.Field("ReservedAt").Exists().And(
 			clover.Field("ReservedAt").Neq(time.Time{}).And(
 				clover.Field("ReservedAt").LtEq(maxDate),
@@ -180,7 +194,7 @@ func (repository *QueueRepository) ReadMessageReservedBefore(maxNumberOfMessages
 		clover.Field("ReadAfter").LtEq(time.Now()),
 	)
 
-	if repository.Fifo {
+	if repository.fifo {
 		query = query.Sort(clover.SortOption{
 			Field:     "CreatedAt",
 			Direction: 1,
@@ -190,7 +204,7 @@ func (repository *QueueRepository) ReadMessageReservedBefore(maxNumberOfMessages
 	docs, err := query.Limit(maxNumberOfMessages).FindAll()
 
 	if err != nil {
-		DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.ReadMessage.01", err)
+		DomainTool.Pretty.Fatalln("ERROR ON QueueRepositoryFiles.ReadMessage.01", err)
 	}
 
 	currentTime := time.Now()
@@ -202,9 +216,9 @@ func (repository *QueueRepository) ReadMessageReservedBefore(maxNumberOfMessages
 		messageDTO := &queueMessageDTO{}
 		doc.Unmarshal(messageDTO)
 		messages = append(messages, &messageDTO.Message)
-		err := db.Query(repository.QueueName).UpdateById(messageDTO.Message.ReceiptHandle, updates)
+		err := db.Query(repository.queueName).UpdateById(messageDTO.Message.ReceiptHandle, updates)
 		if err != nil {
-			DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.ReadMessage.02", err)
+			DomainTool.Pretty.Fatalln("ERROR ON QueueRepositoryFiles.ReadMessage.02", err)
 		}
 	}
 
@@ -213,13 +227,13 @@ func (repository *QueueRepository) ReadMessageReservedBefore(maxNumberOfMessages
 	return messages, nil
 }
 
-func (repository *QueueRepository) DeleteMessage(messages []*DomainEntity.MessageEntity) error {
+func (repository QueueRepositoryFiles) DeleteMessage(messages []*DomainEntity.MessageEntity) error {
 	db := repository.connect()
 	defer db.Close()
 	for _, message := range messages {
-		err := db.Query(repository.QueueName).DeleteById(message.ReceiptHandle)
+		err := db.Query(repository.queueName).DeleteById(message.ReceiptHandle)
 		if err != nil {
-			DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.DeleteMessage.01", err)
+			DomainTool.Pretty.Fatalln("ERROR ON QueueRepositoryFiles.DeleteMessage.01", err)
 		}
 	}
 	db.Close()
@@ -227,13 +241,13 @@ func (repository *QueueRepository) DeleteMessage(messages []*DomainEntity.Messag
 	return nil
 }
 
-func (repository *QueueRepository) DeleteMessageByReceiptHandle(receiptHandles []string) error {
+func (repository QueueRepositoryFiles) DeleteMessageByReceiptHandle(receiptHandles []string) error {
 	db := repository.connect()
 	defer db.Close()
 	for _, receiptHandle := range receiptHandles {
-		err := db.Query(repository.QueueName).DeleteById(receiptHandle)
+		err := db.Query(repository.queueName).DeleteById(receiptHandle)
 		if err != nil {
-			DomainTool.Pretty.Fatalln("ERROR ON QueueRepository.DeleteMessageByReceiptHandle.01", err)
+			DomainTool.Pretty.Fatalln("ERROR ON QueueRepositoryFiles.DeleteMessageByReceiptHandle.01", err)
 		}
 	}
 	db.Close()
@@ -241,21 +255,21 @@ func (repository *QueueRepository) DeleteMessageByReceiptHandle(receiptHandles [
 	return nil
 }
 
-func (repository *QueueRepository) CountTotalMessages() int {
+func (repository QueueRepositoryFiles) CountTotalMessages() int {
 	db := repository.connect()
 	defer db.Close()
 
-	count, _ := db.Query(repository.QueueName).Count()
+	count, _ := db.Query(repository.queueName).Count()
 
 	db.Close()
 
 	return count
 }
 
-func (repository *QueueRepository) ExportAllToFile(filepath string) {
+func (repository QueueRepositoryFiles) ExportAllToFile(filepath string) {
 	db, _ := repository.badgerOpenLoop()
 	defer db.Close()
-	docs, _ := db.Query(repository.QueueName).FindAll()
+	docs, _ := db.Query(repository.queueName).FindAll()
 	db.Close()
 
 	var messages []queueMessageDTO
