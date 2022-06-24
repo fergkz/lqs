@@ -18,22 +18,22 @@ import (
 )
 
 type QueueRepositoryMySQL struct {
-	hostname  string
-	database  string
-	username  string
-	password  string
-	port      int
-	queueName string
-	fifo      bool
+	hostname                           string
+	database                           string
+	username                           string
+	password                           string
+	port                               int
+	queueName                          string
+	fifo                               bool
+	queueMessageAlreadyDatabaseCreated bool
 }
 
 type queueMessageDTOQueueRepositoryMySQL struct {
-	Id                                 string
-	CreatedAt                          time.Time
-	ReservedAt                         time.Time
-	ReadAfter                          time.Time
-	Message                            DomainEntity.MessageEntity
-	queueMessageAlreadyDatabaseCreated bool
+	Id         string
+	CreatedAt  time.Time
+	ReservedAt time.Time
+	ReadAfter  time.Time
+	Message    DomainEntity.MessageEntity
 }
 
 func NewQueueRepositoryMySQL(Hostname string, Database string, Username string, Password string, Port int, QueueName string, Fifo bool) QueueRepositoryMySQL {
@@ -45,6 +45,7 @@ func NewQueueRepositoryMySQL(Hostname string, Database string, Username string, 
 	repository.port = Port
 	repository.queueName = QueueName
 	repository.fifo = Fifo
+	repository.queueMessageAlreadyDatabaseCreated = false
 	return *repository
 }
 
@@ -66,7 +67,8 @@ func (repository *QueueRepositoryMySQL) connect() *sql.DB {
 		panic(err)
 	}
 
-	_, err = db.Exec(`
+	if !repository.queueMessageAlreadyDatabaseCreated {
+		_, err = db.Exec(`
 			CREATE TABLE IF NOT EXISTS ` + repository.getTablename() + ` (
 				id VARCHAR(64) PRIMARY KEY,
 				created_at DATETIME NOT NULL,
@@ -77,8 +79,11 @@ func (repository *QueueRepositoryMySQL) connect() *sql.DB {
 			);
 		`)
 
-	if err != nil {
-		panic(err)
+		if err != nil {
+			panic(err)
+		}
+
+		repository.queueMessageAlreadyDatabaseCreated = true
 	}
 
 	return db
@@ -100,6 +105,8 @@ func (repository QueueRepositoryMySQL) DropQueue() {
 	}
 
 	db.Close()
+
+	repository.queueMessageAlreadyDatabaseCreated = false
 }
 
 func (repository QueueRepositoryMySQL) SendMessage(messages []*DomainEntity.MessageEntity) error {
@@ -126,22 +133,17 @@ func (repository QueueRepositoryMySQL) SendMessage(messages []*DomainEntity.Mess
 		messagesDTO = append(messagesDTO, messageDTO)
 	}
 
+	sqlStr := `INSERT INTO ` + repository.getTablename() + ` (id, created_at, reserved_at, read_after, message) VALUES`
+	sqlVals := []interface{}{}
+
 	for _, messageDTO := range messagesDTO {
 
-		db := repository.connect()
-
-		sqlStatement, err := db.Prepare(`
-			INSERT INTO ` + repository.getTablename() + ` (id, created_at, reserved_at, read_after, message)
-			  VALUES (?, ?, ?, ?, ?);
-		`)
-
-		if err != nil {
-			panic(err)
-		}
+		sqlStr += `(?, ?, ?, ?, ?),`
 
 		b, _ := json.Marshal(messageDTO.Message)
 
-		_, err = sqlStatement.Exec(
+		sqlVals = append(
+			sqlVals,
 			messageDTO.Id,
 			messageDTO.CreatedAt.Format("2006-01-02 15:04:05"),
 			nil,
@@ -149,12 +151,23 @@ func (repository QueueRepositoryMySQL) SendMessage(messages []*DomainEntity.Mess
 			string(b),
 		)
 
-		if err != nil {
-			panic(err)
-		}
-
-		db.Close()
 	}
+
+	sqlStr = sqlStr[0 : len(sqlStr)-1]
+
+	db := repository.connect()
+	stmt, err := db.Prepare(sqlStr)
+
+	if err != nil {
+		panic(err)
+	}
+	_, err = stmt.Exec(sqlVals...)
+
+	if err != nil {
+		panic(err)
+	}
+
+	db.Close()
 
 	return nil
 }
